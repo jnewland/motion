@@ -1,318 +1,439 @@
-# Process this file with autoconf to produce a configure script
-
-AC_INIT(motion, esyscmd(['./version.sh']))
-AC_GNU_SOURCE
-AC_CONFIG_SRCDIR([motion.c])
-AC_CONFIG_HEADERS(config.h)
+AC_INIT(motion, esyscmd(['./scripts/version.sh']))
+AM_INIT_AUTOMAKE([subdir-objects foreign])
 AC_PROG_CC
-AC_HEADER_STDC
-AC_C_CONST
+AC_PROG_CXX
+AC_GNU_SOURCE
+AC_CONFIG_HEADERS([config.h])
+AC_CONFIG_SRCDIR([src/motion.c])
+AC_CANONICAL_HOST
+AC_CONFIG_MACRO_DIR([m4])
 
-
-###############################################################################
-###  Host system
-###############################################################################
-AC_MSG_CHECKING(for Darwin/BSD)
-DISTRO=""
-DISTRO=`uname -a | grep -i "Darwin"`
-if test "x${DISTRO}" = "x"; then
-  DISTRO=`uname -s | grep -i "FreeBSD"`
-fi
-if test "x${DISTRO}" = "x"; then
-  DISTRO=`uname -s | grep -i "NetBSD"`
-fi
-if test "x${DISTRO}" = "x"; then
-  DISTRO=`uname -s | grep -i "OpenBSD"`
-fi
-if test "x${DISTRO}" = "x"; then
-  DISTRO="Linux"
-  AC_MSG_RESULT(no)
-else
-  AC_MSG_RESULT($DISTRO)
-fi
-AC_SUBST(DISTRO)
-
-###############################################################################
-###  Host specific paths
-###############################################################################
-TEMP_LIBS=""
-TEMP_CFLAGS=""
-TEMP_CPPFLAGS=""
-TEMP_LDFLAGS=""
-if test "${DISTRO}" = "Darwin"; then
-  TEMP_CFLAGS="${CFLAGS} -I/sw/include"
-  TEMP_CPPFLAGS="${CPPFLAGS} -I/sw/include"
-  TEMP_LDFLAGS="${LDFLAGS} -L/sw/lib"
-  TEMP_LIBS="-L/sw/lib"
-else
-  if test "${DISTRO}" != "Linux"; then
-    TEMP_CFLAGS="${CFLAGS} -I/usr/local/include"
-    TEMP_CPPFLAGS="${CPPFLAGS} -I/usr/local/include"
-    TEMP_LDFLAGS="${LDFLAGS} -L/usr/local/lib"
-    TEMP_LIBS="-L/usr/local/lib"
-  fi
-fi
-TEMP_LIBS="-lm ${TEMP_LIBS}"
-TEMP_CFLAGS="${TEMP_CFLAGS} ${CFLAGS}"
-TEMP_CPPFLAGS="${TEMP_CPPFLAGS} ${CPPFLAGS}"
-TEMP_LDFLAGS="${TEMP_LDFLAGS} ${LDFLAGS}"
-
-AC_SUBST(CFLAGS, "${TEMP_CFLAGS}")
-AC_SUBST(CPPFLAGS, "${TEMP_CPPFLAGS}")
-AC_SUBST(LDFLAGS, "${TEMP_LDFLAGS}")
-
-###############################################################################
-###  Video System
-###############################################################################
-BKTR="yes"
-AC_ARG_WITH(bktr,
-  AS_HELP_STRING([--without-bktr],
-    [Exclude to use bktr subsystem for BSD]),
-  BKTR="$withval")
-
-V4L2="yes"
-AC_ARG_WITH(v4l2,
-  AS_HELP_STRING([--without-v4l2],[Disable V4L2 devices]),
-  V4L2="$withval")
-
-if test "x${BKTR}" = "xyes"; then
-  if test "${DISTRO}" = "FreeBSD"; then
-    AC_CHECK_HEADERS(dev/bktr/ioctl_meteor.h dev/bktr/ioctl_bt848.h,[BKTR="yes"],[BKTR="no"])
-  elif test "${DISTRO}" = "OpenBSD" || test "${DISTRO}" = "NetBSD"; then
-    AC_CHECK_HEADERS(dev/ic/bt8xx.h,[BKTR="yes"],[BKTR="no"])
-  else
-    BKTR="no"
-  fi
-fi
-if test "${V4L2}" = "yes"; then
-  AC_CHECK_HEADERS(linux/videodev2.h,[V4L2="yes"],[V4L2="no"])
-fi
-
-if test "x${V4L2}" = "xyes"; then
-  AC_DEFINE([HAVE_V4L2], 1, [Define to 1 if V4L2 is around])
-fi
-if test "x${BKTR}" = "xyes"; then
-  AC_DEFINE([HAVE_BKTR], 1, [Define to 1 if BKTR is around])
-fi
+AM_GNU_GETTEXT([external])
+AM_GNU_GETTEXT_VERSION([0.19])
 
 ##############################################################################
-###  Check for threading
+###  Check additional system headers
 ##############################################################################
-THREADS="yes"
-if test "${DISTRO}" = "FreeBSD"; then
-  AC_CHECK_HEADERS(pthread_np.h,[THREADS="yes"],[THREADS="no"])
-  AC_MSG_CHECKING(for threads)
-  AC_MSG_RESULT($THREADS)
-fi
-if test x$THREADS = xyes; then
-  TEMP_LIBS="$TEMP_LIBS -pthread"
-  TEMP_CFLAGS="${TEMP_CFLAGS} -D_THREAD_SAFE"
-fi
+AC_CHECK_HEADERS(stdio.h stdlib.h sys/time.h sys/wait.h \
+    sys/ioctl.h sys/mman.h sys/param.h sys/socket.h stdarg.h \
+    fcntl.h time.h signal.h limits.h errno.h assert.h netdb.h \
+    ctype.h regex.h math.h locale.h dirent.h ctype.h \
+    arpa/inet.h netinet/in.h termios.h,,[
+    AC_MSG_ERROR([Required system headers do not exist.])
+  ]
+)
 
 ##############################################################################
-###  Check for JPG
+###  Check pkg-config  - Required.  Needed to get lib paths/info
+##############################################################################
+AC_CHECK_PROG([PKGCONFIG],[pkg-config],[yes],[no])
+AS_IF([test "${PKGCONFIG}" = "no" ],[
+    AC_MSG_ERROR([Required package 'pkg-config' not found, please check motion_guide.html and install necessary dependencies.])
+  ]
+)
+
+##############################################################################
+###  Check pthread
+##############################################################################
+AC_CHECK_HEADERS(pthread.h,,AC_MSG_ERROR([pthread is required.]))
+CFLAGS="${CFLAGS} -D_THREAD_SAFE "
+LIBS="$LIBS -pthread "
+
+##############################################################################
+###  Check JPG - Required.  Needed for image processing
 ##############################################################################
 AC_CHECK_HEADERS(setjmp.h jerror.h jpeglib.h,[JPGS="yes"],[JPGS="no"])
 AC_MSG_CHECKING(jpg libraries)
 AC_MSG_RESULT($JPGS)
-if test x$JPGS = xyes ; then
-  TEMP_LIBS="$TEMP_LIBS -ljpeg"
-fi
+AS_IF([test "${JPGS}" = "yes" ], [
+    AS_IF([pkg-config libjpeg ], [
+        TEMP_CFLAGS="$TEMP_CFLAGS "`pkg-config --cflags libjpeg`
+        TEMP_LIBS="$TEMP_LIBS "`pkg-config --libs libjpeg`
+      ],[
+        TEMP_LIBS="$TEMP_LIBS -ljpeg"
+      ]
+    )
+  ],[
+    AC_MSG_ERROR([Required package libjpeg-dev not found, please check motion_guide.html and install necessary dependencies])
+  ]
+)
+##############################################################################
+###  Check libmicrohttpd - Required.  Needed for stream/webcontrol
+##############################################################################
+AC_CHECK_HEADERS(microhttpd.h,[MHTTP="yes"],[MHTTP="no"])
+AC_MSG_CHECKING(libmicrohttpd libraries)
+AC_MSG_RESULT($MHTTP)
+AS_IF([test "${MHTTP}" = "yes" ], [
+    TEMP_CFLAGS="$TEMP_CFLAGS "`pkg-config --cflags libmicrohttpd`
+    TEMP_LIBS="$TEMP_LIBS "`pkg-config --libs libmicrohttpd`
+  ],[
+    AC_MSG_ERROR([Required package libmicrohttpd-dev not found, please check motion_guide.html and install necessary dependencies])
+  ]
+)
 
 ##############################################################################
-###  pkg-config
+###  Check setting/getting thread names
 ##############################################################################
-AC_CHECK_PROG([PKGCONFIG],[pkg-config],[yes],[no])
-AM_CONDITIONAL([FOUND_PKGCONFIG], [test "x$PKGCONFIG" = xyes])
-AM_COND_IF([FOUND_PKGCONFIG],,[AC_MSG_ERROR([Required package 'pkg-config' not found, please check motion_guide.html and install necessary dependencies.])])
+AC_CHECK_HEADERS(pthread_np.h,[PTHREAD_NP="yes"],[PTHREAD_NP="no"])
+
+AC_MSG_CHECKING([for pthread_setname_np])
+AC_LINK_IFELSE(
+  [AC_LANG_PROGRAM([#include <pthread.h>], [pthread_setname_np(pthread_self(), "name")])
+  ],[
+    AC_DEFINE([HAVE_PTHREAD_SETNAME_NP], [1], [Define if you have pthread_setname_np function.])
+    PTHREAD_SETNAME_NP="yes"
+    AC_MSG_RESULT([yes])
+  ],[
+    PTHREAD_SETNAME_NP="no"
+    AC_MSG_RESULT([no])
+  ]
+)
+
+AC_MSG_CHECKING([for pthread_getname_np])
+AC_LINK_IFELSE(
+  [AC_LANG_PROGRAM([#include <pthread.h>], [pthread_getname_np(pthread_self(), NULL, 0)])
+  ],[
+    AC_DEFINE([HAVE_PTHREAD_GETNAME_NP], [1], [Define if you have pthread_getname_np function.])
+    PTHREAD_GETNAME_NP="yes"
+    AC_MSG_RESULT([yes])
+  ],[
+    PTHREAD_GETNAME_NP="no"
+    AC_MSG_RESULT([no])
+  ]
+)
 
 ##############################################################################
-###  Webp Image Format
+###  Check XSI strerror_r.  Check for Linux/*BSD/Apple/MUSL variations
+##############################################################################
+AC_MSG_CHECKING([for XSI strerror_r])
+HOLD_CFLAGS="$CFLAGS"
+CFLAGS="$CFLAGS -Werror"
+AC_LINK_IFELSE(
+  [AC_LANG_SOURCE[
+    #include <string.h>
+    #include <errno.h>
+    int main(int argc, char** argv) {
+      char buf[1024];
+      int ret = strerror_r(ENOMEM, buf, sizeof(buf));
+      return ret;
+    }]
+  ],[
+    AC_DEFINE([XSI_STRERROR_R], [1], [Define if you have XSI strerror_r function.])
+    XSI_STRERROR="yes"
+    AC_MSG_RESULT([yes])
+  ],[
+    XSI_STRERROR="no"
+    AC_MSG_RESULT([no])
+  ]
+)
+CFLAGS="$HOLD_CFLAGS"
+
+###############################################################################
+###  BKTR Video System - Optional
+###############################################################################
+AC_ARG_WITH(bktr,
+  AS_HELP_STRING([--without-bktr],[Disable bktr devices]),
+  [BKTR="$withval"],
+  [BKTR="yes"]
+)
+AS_IF([test "${BKTR}" = "yes" ], [
+    AC_CHECK_HEADERS(dev/bktr/ioctl_meteor.h dev/bktr/ioctl_bt848.h,[BKTR="yes"],[BKTR="no"])
+    AS_IF([test "${BKTR}" = "no" ], [
+        AC_CHECK_HEADERS(dev/ic/bt8xx.h,[BKTR="yes"],[BKTR="no"])
+      ]
+    )
+    AS_IF([test "${BKTR}" = "yes" ], [
+        AC_DEFINE([HAVE_BKTR], [1], [Define to 1 if BKTR is around])
+      ]
+    )
+  ]
+)
+
+###############################################################################
+###  V4L2 Video System - Optional
+###############################################################################
+AC_ARG_WITH(v4l2,
+  AS_HELP_STRING([--without-v4l2],[Disable V4L2 devices]),
+  [V4L2="$withval"],
+  [V4L2="yes"]
+)
+AS_IF([test "${V4L2}" = "yes" ], [
+  AC_CHECK_HEADERS(linux/videodev2.h sys/videoio.h,[V4L2="yes";break],[V4L2="no"])
+    AS_IF([test "${V4L2}" = "yes" ], [
+        AC_DEFINE([HAVE_V4L2], [1], [Define to 1 if V4L2 is around])
+      ]
+    )
+  ]
+)
+
+##############################################################################
+###  Webp Image Format - Optional.
 ##############################################################################
 AC_ARG_WITH([webp],
-    AS_HELP_STRING([--with-webp],
-      [Compile with Webp image support]),
-    WEBP="$withval",
-    WEBP="no")
+  AS_HELP_STRING([--with-webp],[Compile with Webp image support]),
+  [WEBP="$withval"],
+  [WEBP="yes]"
+)
 
-HAVE_WEBP=""
-if test "${WEBP}" = "yes"; then
-  AC_MSG_CHECKING(for libwebp)
-  WEBP_DEPS="libwebp"
-  if pkg-config $WEBP_DEPS; then
-    AC_MSG_RESULT(found)
-    AC_DEFINE([HAVE_WEBP], 1, [Define to 1 if WEBP is around])
-    HAVE_WEBP="yes"
-    TEMP_LIBS="$TEMP_LIBS -lwebp -lwebpmux"
-  else
-    AC_MSG_RESULT(not found)
-    AC_MSG_ERROR([Required package 'libwebp-dev' not found. Please check motion_guide.html and install necessary dependencies or use the '--without-webp' configuration option.])
-  fi
-fi
+AS_IF([test "${WEBP}" = "yes" ], [
+    AC_MSG_CHECKING(for webp)
+    AS_IF([pkg-config libwebpmux ], [
+        AC_MSG_RESULT(yes)
+        AC_DEFINE([HAVE_WEBP], [1], [Define to 1 if WEBP is around])
+        TEMP_CFLAGS="$TEMP_CFLAGS "`pkg-config --cflags libwebpmux`
+        TEMP_LIBS="$TEMP_LIBS "`pkg-config --libs libwebpmux`
+      ],[
+        AC_MSG_RESULT(no)
+      ]
+    )
+  ]
+)
 
 ##############################################################################
-###  raspberry pi mmal
+###  raspberry pi mmal - Optional.
 ##############################################################################
-WITHOUT_MMAL="no"
 AC_ARG_WITH([mmal],
-  AS_HELP_STRING([--without-mmal],
-    [Compile without RaspberyPi mmal camera support]),
-  WITHOUT_MMAL="yes",
-  WITHOUT_MMAL="no")
+  AS_HELP_STRING([--with-mmal[=DIR]],[Compile with RasperryPi mmal camera support]),
+  [MMAL="$withval"],
+  [MMAL="yes"]
+)
 
-if test "${WITHOUT_MMAL}" = "no"; then
-  HAVE_MMAL=""
-  if test "${DISTRO}" = "FreeBSD" ; then
-    LIBRASPBERRYPIDEVPATH="/usr/local/include/interface/mmal"
-  else
-    LIBRASPBERRYPIDEVPATH="/opt/vc/include/interface/mmal"
-  fi
+AS_IF([test "${MMAL}" = "no"], [
+    AC_MSG_CHECKING(for MMAL)
+    AC_MSG_RESULT(skipped)
+  ],[
+    AC_MSG_CHECKING(MMAL pkg-config path)
+    TEMP_PATH=$PKG_CONFIG_PATH
+    AS_IF([test "${MMAL}" != "yes"], [
+        PKG_CONFIG_PATH=${MMAL}/lib/pkgconfig:$PKG_CONFIG_PATH
+        MMAL="yes"
+      ],[
+        PKG_CONFIG_PATH=.:/opt/vc/lib/pkgconfig
+      ]
+    )
+    export PKG_CONFIG_PATH
+    AC_MSG_RESULT($PKG_CONFIG_PATH)
 
-  if test -d ${LIBRASPBERRYPIDEVPATH}; then
-       HAVE_MMAL="yes"
-  fi
-
-  AS_IF([test "${HAVE_MMAL}" = "yes" ], [
-    AC_SUBST(MMAL_CFLAGS)
-    AC_SUBST(MMAL_OBJ)
-    AC_SUBST(MMAL_LIBS)
-    MMAL_OBJ="mmalcam.o raspicam/RaspiCamControl.o raspicam/RaspiCLI.o"
-    MMAL_CFLAGS="-std=gnu99 -DHAVE_MMAL -Irasppicam -I/opt/vc/include"
-    AS_IF([test "${DISTRO}" = "FreeBSD" ], [
-      MMAL_CFLAGS="${MMAL_CFLAGS} -I/usr/local/include -I/usr/local/include/interface/vcos -I/usr/local/include/interface/vcos/pthreads/ -I/usr/local/include/interface/vmcs_host/linux"
-      ])
-      MMAL_LIBS="-L/opt/vc/lib -lmmal_core -lmmal_util -lmmal_vc_client -lvcos -lvchostif -lvchiq_arm"
-      AC_DEFINE([HAVE_MMAL], 1, [Define to 1 if we want MMAL])
-  ])
-fi
+    AC_MSG_CHECKING(for MMAL)
+    AS_IF([pkg-config mmal], [
+        TEMP_CFLAGS="$TEMP_CFLAGS -Irasppicam "`pkg-config --cflags mmal`
+        TEMP_LIBS="$TEMP_LIBS "`pkg-config --libs mmal`
+        #pkg config parm does not provide -lvchostif that buildroot requires
+        TEMP_LIBS="$TEMP_LIBS -lvchostif "
+        AC_MSG_RESULT([yes])
+        AC_DEFINE([HAVE_MMAL], [1], [Define to 1 if MMAL is around])
+      ],[
+        AC_MSG_RESULT([no])
+        MMAL="no"
+      ]
+    )
+    PKG_CONFIG_PATH=$TEMP_PATH
+    export PKG_CONFIG_PATH
+  ]
+)
+AM_CONDITIONAL([INC_MMAL_SRC],[test x${MMAL} = xyes])
 
 ##############################################################################
-###  ffmpeg
+###  Check for ffmpeg - Optional.
 ##############################################################################
+FFMPEG_VER="--"
 AC_ARG_WITH([ffmpeg],
-    AS_HELP_STRING([--with-ffmpeg[=DIR]],
-      [Build with FFMPEG support]),
-    [with_ffmpeg=$withval],
-    [with_ffmpeg=yes])
+  AS_HELP_STRING([--with-ffmpeg[=DIR]],[Build with FFMPEG support]),
+  [FFMPEG=$withval],
+  [FFMPEG="yes"]
+)
 
-AS_IF([test "x$with_ffmpeg" != "xno"], [
-       AS_IF([test "x$with_ffmpeg" != "xyes"], [
-          PKG_CONFIG_PATH=${with_ffmpeg}/lib/pkgconfig:$PKG_CONFIG_PATH
-          export PKG_CONFIG_PATH
-    ])
+AS_IF([test "${FFMPEG}" = "no"], [
+    AC_MSG_CHECKING(for FFmpeg)
+    AC_MSG_RESULT(skipped)
+  ],[
+    AC_MSG_CHECKING(FFmpeg pkg-config path)
+    TEMP_PATH=$PKG_CONFIG_PATH
+    AS_IF([test "${FFMPEG}" != "yes"], [
+        PKG_CONFIG_PATH=${FFMPEG}/lib/pkgconfig:$PKG_CONFIG_PATH
+        FFMPEG="yes"
+      ]
+    )
+    export PKG_CONFIG_PATH
+    AC_MSG_RESULT($PKG_CONFIG_PATH)
 
-       FFMPEG_DEPS="libavutil libavformat libavcodec libswscale libavdevice"
-       if pkg-config $FFMPEG_DEPS; then
-               FFMPEG_CFLAGS=`pkg-config --cflags $FFMPEG_DEPS`
-               FFMPEG_LIBS=`pkg-config --libs $FFMPEG_DEPS`
-               HAVE_FFMPEG="yes"
-       else
-              AC_MSG_ERROR([Required ffmpeg packages 'libavutil-dev libavformat-dev libavcodec-dev libswscale-dev libavdevice-dev' were not found.  Please check motion_guide.html and install necessary dependencies or use the '--without-ffmpeg' configuration option.])
-       fi
-       AC_SUBST(FFMPEG_LIBS)
-       AC_SUBST(FFMPEG_CFLAGS)
-])
-
-AS_IF([test "${HAVE_FFMPEG}" = "yes" ], [
-       AC_DEFINE([HAVE_FFMPEG], 1, [Define to 1 if FFMPEG is around])
-])
+    FFMPEG_DEPS="libavutil libavformat libavcodec libswscale libavdevice"
+    AC_MSG_CHECKING(for FFmpeg)
+    AS_IF([pkg-config $FFMPEG_DEPS], [
+        FFMPEG_VER=`pkg-config --modversion libavformat`
+        TEMP_CFLAGS="$TEMP_CFLAGS "`pkg-config --cflags $FFMPEG_DEPS`
+        TEMP_LIBS="$TEMP_LIBS "`pkg-config --libs $FFMPEG_DEPS`
+        AC_DEFINE([HAVE_FFMPEG], [1], [Define to 1 if FFMPEG is around])
+        AC_MSG_RESULT(yes)
+      ],[
+        AC_MSG_RESULT(no)
+        AC_MSG_ERROR([Required ffmpeg packages 'libavutil-dev libavformat-dev libavcodec-dev libswscale-dev libavdevice-dev' were not found.  Please check motion_guide.html and install necessary dependencies or use the '--without-ffmpeg' configuration option.])
+      ]
+    )
+    PKG_CONFIG_PATH=$TEMP_PATH
+    export PKG_CONFIG_PATH
+  ]
+)
 
 ##############################################################################
-###  Check SQLITE3
+###  Check for MariaDB - Optional
 ##############################################################################
-SQLITE_OBJ=""
-SQLITE3_SUPPORT="no"
+AC_ARG_WITH(mariadb,
+  AS_HELP_STRING([--with-mariadb[=DIR]],[Build with MariaDB support]),
+  [MARIADB="$withval"],
+  [MARIADB="yes"]
+)
+
+AS_IF([test "${MARIADB}" = "no"], [
+    AC_MSG_CHECKING(for MariaDB)
+    AC_MSG_RESULT(skipped)
+  ],[
+    TEMP_PATH=$PKG_CONFIG_PATH
+    AC_MSG_CHECKING(MariaDB pkg-config path)
+    AS_IF([test "${MARIADB}" != "yes"], [
+        PKG_CONFIG_PATH=${MARIADB}/lib/pkgconfig:$PKG_CONFIG_PATH
+        MARIADB="yes"
+      ]
+    )
+    export PKG_CONFIG_PATH
+    AC_MSG_RESULT($PKG_CONFIG_PATH)
+
+    AC_MSG_CHECKING(for MariaDB)
+    AS_IF([pkg-config mariadb], [
+        TEMP_CFLAGS="$TEMP_CFLAGS "`pkg-config --cflags mariadb`
+        TEMP_LIBS="$TEMP_LIBS "`pkg-config --libs mariadb`
+        AC_DEFINE([HAVE_MARIADB], [1], [Define to 1 if you have MariaDB support])
+      ],[
+        MARIADB="no"
+      ]
+    )
+    AC_MSG_RESULT([$MARIADB])
+    PKG_CONFIG_PATH=$TEMP_PATH
+    export PKG_CONFIG_PATH
+  ]
+)
+
+##############################################################################
+###  Check for MySQL - Optional
+##############################################################################
+AC_ARG_WITH(mysql,
+  AS_HELP_STRING([--with-mysql[=DIR]],[Build with MySQL support]),
+  [MYSQL="$withval"],
+  [MYSQL="yes"]
+)
+
+AS_IF([test "${MYSQL}" = "no"], [
+    AC_MSG_CHECKING(for MySQL)
+    AC_MSG_RESULT(skipped)
+  ],[
+    TEMP_PATH=$PKG_CONFIG_PATH
+    AC_MSG_CHECKING(MySQL pkg-config path)
+    AS_IF([test "${MYSQL}" != "yes"], [
+        PKG_CONFIG_PATH=${MYSQL}/lib/pkgconfig:$PKG_CONFIG_PATH
+        MYSQL="yes"
+      ]
+    )
+    export PKG_CONFIG_PATH
+    AC_MSG_RESULT($PKG_CONFIG_PATH)
+
+    AC_MSG_CHECKING(for MySQL)
+    AS_IF([pkg-config mysqlclient], [
+        TEMP_CFLAGS="$TEMP_CFLAGS "`pkg-config --cflags mysqlclient`
+        TEMP_LIBS="$TEMP_LIBS "`pkg-config --libs mysqlclient`
+        AC_DEFINE([HAVE_MYSQL], [1], [Define to 1 if you have MySQL support])
+      ],[
+        MYSQL="no"
+      ]
+    )
+    AC_MSG_RESULT([$MYSQL])
+    PKG_CONFIG_PATH=$TEMP_PATH
+    export PKG_CONFIG_PATH
+  ]
+)
+
+##############################################################################
+###  Check for PostgreSQL - Optional
+##############################################################################
+AC_ARG_WITH(pgsql,
+  AS_HELP_STRING([--with-pgsql[=DIR]],[Build with PostgreSQL support]),
+  [PGSQL="$withval"],
+  [PGSQL="yes"]
+)
+
+AS_IF([test "${PGSQL}" = "no"], [
+    AC_MSG_CHECKING(for PostgreSQL)
+    AC_MSG_RESULT(skipped)
+  ],[
+    TEMP_PATH=$PKG_CONFIG_PATH
+    AC_MSG_CHECKING(PostgreSQL pkg-config path)
+    AS_IF([test "${PGSQL}" != "yes"], [
+        PKG_CONFIG_PATH=${PGSQL}/lib/pkgconfig:$PKG_CONFIG_PATH
+        PGSQL="yes"
+      ]
+    )
+    export PKG_CONFIG_PATH
+    AC_MSG_RESULT($PKG_CONFIG_PATH)
+
+    AC_MSG_CHECKING(for PostgreSQL)
+    AS_IF([pkg-config libpq], [
+        TEMP_CFLAGS="$TEMP_CFLAGS "`pkg-config --cflags libpq`
+        TEMP_LIBS="$TEMP_LIBS "`pkg-config --libs libpq`
+        AC_DEFINE([HAVE_PGSQL], [1], [Define to 1 if you have PostgreSQL support])
+      ],[
+        PGSQL="no"
+      ]
+    )
+    AC_MSG_RESULT([$PGSQL])
+    PKG_CONFIG_PATH=$TEMP_PATH
+    export PKG_CONFIG_PATH
+  ]
+)
+
+##############################################################################
+###  Check for SQLITE3 - Optional
+##############################################################################
 AC_ARG_WITH(sqlite3,
-    AS_HELP_STRING([--without-sqlite3],
-      [Disable sqlite3 support in motion.]),
-    [SQLITE3="$withval"])
-
-if test "${SQLITE3}" = "no"; then
+  AS_HELP_STRING([--without-sqlite3],[Disable sqlite3 support.]),
+  [SQLITE3="$withval"],
+  [SQLITE3="yes"]
+)
+AS_IF([test "${SQLITE3}" = "no"], [
     AC_MSG_CHECKING(for sqlite3)
     AC_MSG_RESULT(skipping)
-else
-    # first we check to see if the sqlite3 amalgamation (sqlite3.c), is in with our source
-    # this is the preferred way to use sqlite
-    if test -f sqlite3.c; then
-        SQLITE3_SUPPORT="yes"
-        SQLITE_OBJ="sqlite3.o"
-        TEMP_LIBS="$TEMP_LIBS -ldl"
-        AC_DEFINE([HAVE_SQLITE3],1,[Define to 1 if you have SQLITE3])
-        AC_DEFINE([HAVE_SQLITE3_EMBEDDED],1,[Define to 1 if you have SQLITE3 embedded support])
-    else
-        # if sqlite3.c is not found then we look for the shared library
-        AC_CHECK_HEADERS(sqlite3.h,
-            [
-            TEMP_LIBS="$TEMP_LIBS -lsqlite3"
-            SQLITE3_SUPPORT="yes"
-            AC_DEFINE([HAVE_SQLITE3],1,[Define to 1 if you have SQLITE3 shared library support])
-            ]
-        )
-    fi
-fi
-AC_SUBST(SQLITE_OBJ)
-
-##############################################################################
-###  Check mysql
-##############################################################################
-AC_ARG_WITH([mysql],
-    AS_HELP_STRING([--without-mysql],
-    [Build without mysql support]),
-    [MYSQL=$withval],
-    [MYSQL=yes])
-
-if test "x${MYSQL}" = "xno"; then
-    AC_MSG_CHECKING(for mysql support)
-    AC_MSG_RESULT(skipped)
-else
-    AC_CHECK_HEADERS(mysql/mysql.h,[MYSQL="yes"],[MYSQL="no"])
-    AC_MSG_CHECKING(for mysql support)
-    AC_MSG_RESULT($MYSQL)
-    if test "x${MYSQL}" = "xyes"; then
-        TEMP_LIBS="$TEMP_LIBS -lmysqlclient -lz"
-        AC_DEFINE([HAVE_MYSQL],1,[Define to 1 if you have MySQL support])
-    fi
-fi
-
-##############################################################################
-###  Check PostgreSQL
-##############################################################################
-AC_ARG_WITH([pgsql],
-        AS_HELP_STRING([--without-pgsql], [Build without pgsql support]),
-        [PGSQL=$withval],
-        [PGSQL=yes])
-
-if test "x${PGSQL}" = "xno"; then
-    AC_MSG_CHECKING(for PostgreSQL support)
-    AC_MSG_RESULT(skipped)
-else
-    AC_CHECK_HEADERS(postgresql/libpq-fe.h,[PGSQL="yes"],[PGSQL="no"])
-    AC_MSG_CHECKING(for PostgreSQL support)
-    AC_MSG_RESULT($PGSQL)
-    if test "x${PGSQL}" = "xyes"; then
-        TEMP_LIBS="$TEMP_LIBS -lpq"
-        AC_DEFINE([HAVE_PGSQL],1,[Define to 1 if you have PostgreSQL support])
-    fi
-fi
+  ],[
+    AC_CHECK_HEADERS(sqlite3.h, [
+        TEMP_CFLAGS="$TEMP_CFLAGS "`pkg-config --cflags sqlite3`
+        TEMP_LIBS="$TEMP_LIBS "`pkg-config --libs sqlite3`
+        AC_DEFINE([HAVE_SQLITE3], [1], [Define to 1 if you have SQLITE3 support])
+      ],[
+        SQLITE3="no"
+      ]
+    )
+  ]
+)
 
 ##############################################################################
 ###  Optimize compiler
 ##############################################################################
 AC_ARG_WITH([optimizecpu],
-        AS_HELP_STRING([--without-optimizecpu],
-            [Exclude autodetecting platform and cpu type. This will disable the compilation of gcc optimizing code by platform and cpu.]),
-        [OPTIMIZECPU=$withval],
-        [OPTIMIZECPU=no])
+  AS_HELP_STRING([--without-optimizecpu],
+    [Exclude autodetecting platform and cpu type. This will disable the compilation of gcc optimizing code by platform and cpu.]),
+  [OPTIMIZECPU=$withval],
+  [OPTIMIZECPU=no]
+)
 
-CPU_OPTIONS=""
-if test -e "/proc/device-tree/model"; then
-    # explicit test for RPI3 as /proc/cpuinfo reports armv7 even though it is armv8
-    RPI3=`grep "Raspberry Pi 3 Model" /proc/device-tree/model`
-    if test "x${RPI3}" != "x"; then
-    CPU_OPTIONS="-mcpu=cortex-a53 -mfpu=neon-fp-armv8"
-    fi
-fi
-
+AS_IF([test "${OPTIMIZECPU}" = "yes"], [
+    AS_IF([test -e "/proc/device-tree/model"], [
+        # explicit test for RPI3 as /proc/cpuinfo reports armv7 even though it is armv8
+        RPI3=`grep "Raspberry Pi 3 Model" /proc/device-tree/model`
+        AS_IF([test "x${RPI3}" != "x"], [
+            TEMP_CFLAGS="$TEMP_CFLAGS -mcpu=cortex-a53 -mfpu=neon-fp-armv8"
+          ]
+        )
+      ]
+    )
+  ]
+)
 
 ##############################################################################
 ###  Developer Flags
@@ -323,47 +444,45 @@ AC_ARG_WITH([developer-flags],
     [DEVELOPER_FLAGS=$withval],
     [DEVELOPER_FLAGS=no])
 
-if test "${DEVELOPER_FLAGS}" = "yes"; then
-    TEMP_CFLAGS="${TEMP_CFLAGS} -W -Wshadow -Wpointer-arith -Wcast-align -Wwrite-strings -Waggregate-return -Wstrict-prototypes -Wmissing-prototypes -Wnested-externs -Winline -Wredundant-decls -Wno-long-long -ggdb -g3"
-fi
-
-CFLAGS="${TEMP_CFLAGS} $CPU_OPTIONS"
-LIBS="${TEMP_LIBS}"
-LDFLAGS="${TEMP_LDFLAGS}"
-
+AS_IF([test "${DEVELOPER_FLAGS}" = "yes"], [
+    TEMP_CFLAGS="$TEMP_CFLAGS -W -Werror -Wall -Wextra -Wformat -Wshadow -Wpointer-arith -Wwrite-strings -Waggregate-return -Wstrict-prototypes -Wmissing-prototypes -Wnested-externs -Winline -Wredundant-decls -Wno-long-long -ggdb -g3"
+  ]
+)
 ##############################################################################
-###  exec paths
+###  Prototype Flags
+###  mysql and mariadb have upstream prototype errors so remove that check
 ##############################################################################
-if test $prefix = "NONE";then
-    BIN_PATH="$ac_default_prefix"
-    if test $exec_prefix = "NONE"; then
-        BIN_PATH="$BIN_PATH/bin"
-    else
-        BIN_PATH="$BIN_PATH/$bindir"
-    fi
-else
-    if test $exec_prefix = "NONE";then
-        BIN_PATH="$prefix/bin"
-    else
-        BIN_PATH="$prefix/$bindir"
-    fi
-fi
-AC_SUBST(BIN_PATH)
+AC_ARG_WITH([prototype-flags],
+    AS_HELP_STRING([--with-prototype-flags],
+    [Causes practically all of the possible gcc warning flags to be set except missing prototypes.]),
+    [PROTOTYPE_FLAGS=$withval],
+    [PROTOTYPE_FLAGS=no])
 
-AC_CHECK_HEADERS(stdio.h unistd.h stdint.h fcntl.h time.h signal.h sys/ioctl.h sys/mman.h sys/param.h sys/types.h)
+AS_IF([test "${PROTOTYPE_FLAGS}" = "yes"], [
+    TEMP_CFLAGS="$TEMP_CFLAGS -W -Werror -Wall -Wextra -Wformat -Wshadow -Wpointer-arith -Wwrite-strings -Waggregate-return -Wnested-externs -Winline -Wredundant-decls -Wno-long-long -ggdb -g3"
+  ]
+)
+
+
+CFLAGS="$CFLAGS $TEMP_CFLAGS"
+LIBS="$LIBS $TEMP_LIBS"
+LDFLAGS="$TEMP_LDFLAGS"
 
 AC_CONFIG_FILES([
-camera1-dist.conf
-camera2-dist.conf
-camera3-dist.conf
-camera4-dist.conf
-motion-dist.conf
-motion.init-FreeBSD.sh
-motion.init-Debian
-motion.service
-motion.spec
-Makefile
+	Makefile
+	src/Makefile
+  po/Makefile.in
+  man/Makefile
+  data/camera1-dist.conf
+  data/camera2-dist.conf
+  data/camera3-dist.conf
+  data/camera4-dist.conf
+  data/motion-dist.conf
+  data/motion.service
 ])
+
+AC_ARG_VAR([KILL],[the 'kill' program to use to send signals to motion])
+AC_PATH_PROG([KILL],[kill],['/bin/kill'])
 AC_OUTPUT
 
 ##############################################################################
@@ -375,93 +494,28 @@ echo "      Configure status       "
 echo "      ${PACKAGE_NAME} ${PACKAGE_VERSION}"
 echo "   **************************"
 echo
-
-
-if test "${DISTRO}" = "Darwin"; then
-    echo "OS             :     Darwin"
-elif test "${DISTRO}" != "Linux"; then
-    echo "OS             :     *BSD"
-else
-    echo "OS             :     Linux"
-fi
-
-if test "${THREADS}" = "yes"; then
-    echo "pthread support:     Yes"
-else
-    echo "pthread support:     No"
-    echo "**********************************************"
-    echo "** Fatal Error YOU MUST HAVE pthread Support *"
-    echo "**********************************************"
-fi
-
-if test "${JPGS}" = "yes"; then
-    echo "jpeg support:        Yes"
-else
-    echo "jpeg support:        No"
-    echo "**********************************************"
-    echo "** Fatal Error YOU MUST HAVE jpeg Support  ***"
-    echo "**********************************************"
-fi
-
-if test "${HAVE_WEBP}" = "yes"; then
-   echo "webp support:        Yes"
-else
-   echo "webp support:        No"
-fi
-
-if test "$V4L2" = "yes"; then
-    echo "V4L2 support:        Yes"
-else
-    echo "V4L2 support:        No"
-fi
-
-if test "${BKTR}" = "yes"; then
-    echo "BKTR support:        Yes"
-else
-    echo "BKTR support:        No"
-fi
-
-if test "${HAVE_MMAL}" = "yes"; then
-    echo "MMAL support:        Yes"
-    echo " ... MMAL_CFLAGS: $MMAL_CFLAGS"
-    echo " ... MMAL_OBJ: $MMAL_OBJ"
-    echo " ... MMAL_LIBS: $MMAL_LIBS"
-elif test "${WITHOUT_MMAL}" = "yes"; then
-    echo "MMAL support:        disabled"
-else
-    echo "MMAL support:        No"
-    echo " ... libraspberrypi-dev package not installed"
-fi
-
-if test "${HAVE_FFMPEG}" = "yes"; then
-    echo "FFmpeg support:      Yes"
-    echo " ... FFMPEG_CFLAGS: $FFMPEG_CFLAGS"
-    echo " ... FFMPEG_LIBS: $FFMPEG_LIBS"
-else
-    echo "FFmpeg support:      No"
-fi
-
-if test "${SQLITE3_SUPPORT}" = "yes"; then
-    echo "SQLite3 support:     Yes"
-else
-    echo "SQLite3 support:     No"
-fi
-
-if test "${MYSQL}" = "yes"; then
-    echo "MYSQL support:       Yes"
-else
-    echo "MYSQL support:       No"
-fi
-
-if test "${PGSQL}" = "yes"; then
-    echo "PostgreSQL support:  Yes"
-else
-    echo "PostgreSQL support:  No"
-fi
-echo
 echo "CFLAGS: $CFLAGS"
+echo
 echo "LIBS: $LIBS"
+echo
 echo "LDFLAGS: $LDFLAGS"
+echo
+echo
+echo "OS                  : $host_os"
+echo "pthread_np          : $PTHREAD_NP"
+echo "pthread_setname_np  : $PTHREAD_SETNAME_NP"
+echo "pthread_getname_np  : $PTHREAD_GETNAME_NP"
+echo "XSI error           : $XSI_STRERROR"
+echo "webp support        : $WEBP"
+echo "V4L2 support        : $V4L2"
+echo "BKTR support        : $BKTR"
+echo "MMAL support        : $MMAL"
+echo "FFmpeg support      : $FFMPEG"
+echo "libavformat version : $FFMPEG_VER"
+echo "SQLite3 support     : $SQLITE3"
+echo "MYSQL support       : $MYSQL"
+echo "PostgreSQL support  : $PGSQL"
+echo "MariaDB support     : $MARIADB"
 echo
 echo  "Install prefix:       $prefix"
 echo
