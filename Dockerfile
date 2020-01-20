@@ -8,6 +8,7 @@ RUN apt-get update
 
 RUN apt-get install -y \
     autoconf \
+    autopoint \
     curl \
     build-essential \
     ffmpeg \
@@ -19,6 +20,7 @@ RUN apt-get install -y \
     libavutil-dev \
     libav-tools \
     libjpeg-dev \
+    libmicrohttpd-dev \
     libswscale-dev \
     libzip-dev \
     locales \
